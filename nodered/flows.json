@@ -1,0 +1,703 @@
+[
+  {
+    "id": "flow_api",
+    "type": "tab",
+    "label": "Tugas 9 - REST API IoT",
+    "disabled": false,
+    "info": ""
+  },
+  {
+    "id": "sf_auth",
+    "type": "subflow",
+    "name": "Cek API Key",
+    "info": "Meloloskan request jika header X-API-Key sama dengan env API_KEY. Jika tidak, keluar lewat output 2 dengan status 401.",
+    "category": "",
+    "color": "#E2D96E",
+    "icon": "font-awesome/fa-key",
+    "in": [
+      {
+        "x": 60,
+        "y": 80,
+        "wires": [
+          {
+            "id": "sf_auth_fn"
+          }
+        ]
+      }
+    ],
+    "out": [
+      {
+        "x": 360,
+        "y": 60,
+        "wires": [
+          {
+            "id": "sf_auth_fn",
+            "port": 0
+          }
+        ]
+      },
+      {
+        "x": 360,
+        "y": 100,
+        "wires": [
+          {
+            "id": "sf_auth_fn",
+            "port": 1
+          }
+        ]
+      }
+    ],
+    "env": [],
+    "inputLabels": [
+      "request"
+    ],
+    "outputLabels": [
+      "lolos",
+      "ditolak 401"
+    ]
+  },
+  {
+    "id": "sf_auth_fn",
+    "type": "function",
+    "z": "sf_auth",
+    "name": "Cocokkan X-API-Key",
+    "outputs": 2,
+    "x": 210,
+    "y": 80,
+    "wires": [
+      [],
+      []
+    ],
+    "func": "\nconst kunci = env.get(\"API_KEY\") || \"iot-2410020079\";\nif (msg.req.headers[\"x-api-key\"] === kunci) return [msg, null];\n\nmsg.statusCode = 401;\nmsg.payload = { status: \"error\", message: \"API key salah atau tidak ada (header X-API-Key)\" };\nreturn [null, msg];"
+  },
+  {
+    "id": "mqtt_broker_config",
+    "type": "mqtt-broker",
+    "name": "Local Mosquitto",
+    "broker": "localhost",
+    "port": "1883",
+    "clientid": "",
+    "autoConnect": true,
+    "usetls": false,
+    "protocolVersion": "4",
+    "keepalive": "60",
+    "cleansession": true
+  },
+  {
+    "id": "db_config",
+    "type": "sqlitedb",
+    "db": "iot.db",
+    "mode": "RWC"
+  },
+  {
+    "id": "ws_listener",
+    "type": "websocket-listener",
+    "path": "/ws/sensor",
+    "wholemsg": "false"
+  },
+  {
+    "id": "c_start",
+    "type": "comment",
+    "z": "flow_api",
+    "name": "Start: buat tabel SQLite, lalu subscribe sensor",
+    "info": "",
+    "x": 280,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "inject_start",
+    "type": "inject",
+    "z": "flow_api",
+    "name": "Sekali saat start",
+    "props": [],
+    "repeat": "",
+    "crontab": "",
+    "once": true,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 250,
+    "y": 80,
+    "wires": [
+      [
+        "create_table"
+      ]
+    ]
+  },
+  {
+    "id": "create_table",
+    "type": "function",
+    "z": "flow_api",
+    "name": "SQL buat tabel",
+    "func": "msg.topic = \"CREATE TABLE IF NOT EXISTS sensor (\" +\n  \"id INTEGER PRIMARY KEY AUTOINCREMENT, \" +\n  \"suhu REAL NOT NULL, kelembaban REAL NOT NULL, \" +\n  \"timestamp TEXT, received TEXT NOT NULL)\";\nreturn msg;",
+    "outputs": 1,
+    "x": 470,
+    "y": 80,
+    "wires": [
+      [
+        "sqlite_create"
+      ]
+    ]
+  },
+  {
+    "id": "sqlite_create",
+    "type": "sqlite",
+    "z": "flow_api",
+    "mydb": "db_config",
+    "sqlquery": "msg.topic",
+    "sql": "",
+    "name": "Buat tabel",
+    "x": 670,
+    "y": 80,
+    "wires": [
+      [
+        "start_subscribe"
+      ]
+    ]
+  },
+  {
+    "id": "start_subscribe",
+    "type": "function",
+    "z": "flow_api",
+    "name": "Subscribe iot/sensor",
+    "func": "// Subscribe setelah tabel ada, supaya data pertama tidak gagal disimpan\nnode.log(\"Tabel sensor siap, subscribe iot/sensor\");\nreturn { action: \"subscribe\", topic: \"iot/sensor\", qos: 0 };",
+    "outputs": 1,
+    "x": 880,
+    "y": 80,
+    "wires": [
+      [
+        "link_out_sub"
+      ]
+    ]
+  },
+  {
+    "id": "link_out_sub",
+    "type": "link out",
+    "z": "flow_api",
+    "name": "ke Subscribe Sensor",
+    "mode": "link",
+    "links": [
+      "link_in_sub"
+    ],
+    "x": 1015,
+    "y": 80,
+    "wires": []
+  },
+  {
+    "id": "link_in_sub",
+    "type": "link in",
+    "z": "flow_api",
+    "name": "mulai subscribe",
+    "links": [
+      "link_out_sub"
+    ],
+    "x": 95,
+    "y": 240,
+    "wires": [
+      [
+        "mqtt_sensor_in"
+      ]
+    ]
+  },
+  {
+    "id": "c_sensor",
+    "type": "comment",
+    "z": "flow_api",
+    "name": "Data sensor dari ESP32 (MQTT) -> SQLite, WebSocket, notifikasi",
+    "info": "",
+    "x": 350,
+    "y": 140,
+    "wires": []
+  },
+  {
+    "id": "mqtt_sensor_in",
+    "type": "mqtt in",
+    "z": "flow_api",
+    "name": "Subscribe Sensor",
+    "topic": "",
+    "qos": "0",
+    "datatype": "json",
+    "broker": "mqtt_broker_config",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 1,
+    "x": 240,
+    "y": 200,
+    "wires": [
+      [
+        "store_sensor"
+      ]
+    ]
+  },
+  {
+    "id": "store_sensor",
+    "type": "function",
+    "z": "flow_api",
+    "name": "Proses Data Sensor",
+    "func": "const data = msg.payload;\nif (typeof data.suhu !== \"number\" || typeof data.kelembaban !== \"number\") {\n  node.warn(\"Data sensor diabaikan, suhu/kelembaban bukan angka\");\n  return null;\n}\ndata.received = new Date().toISOString();\nflow.set(\"lastSensor\", data);\n\nconst simpan = {\n  params: { $suhu: data.suhu, $kelembaban: data.kelembaban, $timestamp: data.timestamp || null, $received: data.received }\n};\nconst live = { payload: { type: \"sensor\", data } };\n\n// Notifikasi hanya saat suhu baru melewati batas, bukan di setiap data selama masih di atas batas\nconst batas = flow.get(\"threshold\") ?? 30;\nconst diAtas = data.suhu > batas;\nlet notif = null;\nif (diAtas && !flow.get(\"diAtasBatas\")) {\n  notif = {\n    payload: {\n      type: \"alert\",\n      suhu: data.suhu,\n      batas,\n      pesan: \"Suhu \" + data.suhu + \" C melewati batas \" + batas + \" C\",\n      waktu: data.received\n    }\n  };\n}\nflow.set(\"diAtasBatas\", diAtas);\n\nreturn [simpan, live, notif];",
+    "outputs": 3,
+    "x": 480,
+    "y": 200,
+    "wires": [
+      [
+        "sqlite_insert"
+      ],
+      [
+        "ws_out",
+        "debug_sensor"
+      ],
+      [
+        "mqtt_notif",
+        "ws_out",
+        "debug_notif"
+      ]
+    ]
+  },
+  {
+    "id": "sqlite_insert",
+    "type": "sqlite",
+    "z": "flow_api",
+    "mydb": "db_config",
+    "sqlquery": "prepared",
+    "sql": "INSERT INTO sensor (suhu, kelembaban, timestamp, received) VALUES ($suhu, $kelembaban, $timestamp, $received)",
+    "name": "Simpan ke SQLite",
+    "x": 740,
+    "y": 160,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "ws_out",
+    "type": "websocket out",
+    "z": "flow_api",
+    "name": "WebSocket /ws/sensor",
+    "server": "ws_listener",
+    "client": "",
+    "x": 760,
+    "y": 220,
+    "wires": []
+  },
+  {
+    "id": "debug_sensor",
+    "type": "debug",
+    "z": "flow_api",
+    "name": "Log Sensor",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 730,
+    "y": 280,
+    "wires": []
+  },
+  {
+    "id": "mqtt_notif",
+    "type": "mqtt out",
+    "z": "flow_api",
+    "name": "Publish Notifikasi",
+    "topic": "iot/notifikasi",
+    "qos": "1",
+    "retain": "false",
+    "broker": "mqtt_broker_config",
+    "x": 750,
+    "y": 340,
+    "wires": []
+  },
+  {
+    "id": "debug_notif",
+    "type": "debug",
+    "z": "flow_api",
+    "name": "Log Notifikasi",
+    "active": true,
+    "tosidebar": true,
+    "console": true,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 740,
+    "y": 400,
+    "wires": []
+  },
+  {
+    "id": "c_api",
+    "type": "comment",
+    "z": "flow_api",
+    "name": "REST API, semua endpoint dicek X-API-Key dulu",
+    "info": "",
+    "x": 320,
+    "y": 480,
+    "wires": []
+  },
+  {
+    "id": "http_get_suhu",
+    "type": "http in",
+    "z": "flow_api",
+    "name": "GET /api/suhu",
+    "url": "/api/suhu",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 230,
+    "y": 520,
+    "wires": [
+      [
+        "auth_suhu"
+      ]
+    ]
+  },
+  {
+    "id": "auth_suhu",
+    "type": "subflow:sf_auth",
+    "z": "flow_api",
+    "name": "",
+    "x": 420,
+    "y": 520,
+    "wires": [
+      [
+        "resp_suhu"
+      ],
+      [
+        "http_resp_401"
+      ]
+    ]
+  },
+  {
+    "id": "resp_suhu",
+    "type": "function",
+    "z": "flow_api",
+    "name": "Build Response Suhu",
+    "func": "const data = flow.get(\"lastSensor\") || { suhu: null, kelembaban: null, timestamp: null };\nmsg.payload = { status: \"success\", data, server_time: new Date().toISOString() };\nreturn msg;",
+    "outputs": 1,
+    "x": 620,
+    "y": 520,
+    "wires": [
+      [
+        "http_resp_suhu"
+      ]
+    ]
+  },
+  {
+    "id": "http_resp_suhu",
+    "type": "http response",
+    "z": "flow_api",
+    "name": "",
+    "statusCode": "",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "x": 830,
+    "y": 520,
+    "wires": []
+  },
+  {
+    "id": "http_get_history",
+    "type": "http in",
+    "z": "flow_api",
+    "name": "GET /api/history",
+    "url": "/api/history",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 240,
+    "y": 580,
+    "wires": [
+      [
+        "auth_history"
+      ]
+    ]
+  },
+  {
+    "id": "auth_history",
+    "type": "subflow:sf_auth",
+    "z": "flow_api",
+    "name": "",
+    "x": 420,
+    "y": 580,
+    "wires": [
+      [
+        "query_history"
+      ],
+      [
+        "http_resp_401"
+      ]
+    ]
+  },
+  {
+    "id": "query_history",
+    "type": "function",
+    "z": "flow_api",
+    "name": "Parameter Limit",
+    "func": "const limit = Math.min(Math.max(parseInt(msg.req.query.limit, 10) || 50, 1), 500);\nmsg.params = { $limit: limit };\nreturn msg;",
+    "outputs": 1,
+    "x": 600,
+    "y": 580,
+    "wires": [
+      [
+        "sqlite_history"
+      ]
+    ]
+  },
+  {
+    "id": "sqlite_history",
+    "type": "sqlite",
+    "z": "flow_api",
+    "mydb": "db_config",
+    "sqlquery": "prepared",
+    "sql": "SELECT suhu, kelembaban, timestamp, received FROM (SELECT * FROM sensor ORDER BY id DESC LIMIT $limit) ORDER BY id ASC",
+    "name": "Ambil dari SQLite",
+    "x": 790,
+    "y": 580,
+    "wires": [
+      [
+        "resp_history"
+      ]
+    ]
+  },
+  {
+    "id": "resp_history",
+    "type": "function",
+    "z": "flow_api",
+    "name": "Build Response History",
+    "func": "msg.payload = { status: \"success\", count: msg.payload.length, data: msg.payload };\nreturn msg;",
+    "outputs": 1,
+    "x": 1000,
+    "y": 580,
+    "wires": [
+      [
+        "http_resp_history"
+      ]
+    ]
+  },
+  {
+    "id": "http_resp_history",
+    "type": "http response",
+    "z": "flow_api",
+    "name": "",
+    "statusCode": "",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "x": 1190,
+    "y": 580,
+    "wires": []
+  },
+  {
+    "id": "http_post_kontrol",
+    "type": "http in",
+    "z": "flow_api",
+    "name": "POST /api/kontrol",
+    "url": "/api/kontrol",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 240,
+    "y": 640,
+    "wires": [
+      [
+        "auth_kontrol"
+      ]
+    ]
+  },
+  {
+    "id": "auth_kontrol",
+    "type": "subflow:sf_auth",
+    "z": "flow_api",
+    "name": "",
+    "x": 420,
+    "y": 640,
+    "wires": [
+      [
+        "proc_kontrol"
+      ],
+      [
+        "http_resp_401"
+      ]
+    ]
+  },
+  {
+    "id": "proc_kontrol",
+    "type": "function",
+    "z": "flow_api",
+    "name": "Validasi & Publish",
+    "func": "const body = msg.payload || {};\nif (!body.device || !body.action) {\n  msg.statusCode = 400;\n  msg.payload = { status: \"error\", message: \"device dan action wajib diisi\" };\n  return [msg, null];\n}\n\nconst perintah = { topic: \"iot/kontrol\", payload: { device: body.device, action: body.action } };\nmsg.payload = { status: \"success\", message: \"Perintah terkirim\", sent: perintah.payload };\nreturn [msg, perintah];",
+    "outputs": 2,
+    "x": 620,
+    "y": 640,
+    "wires": [
+      [
+        "http_resp_kontrol"
+      ],
+      [
+        "mqtt_publish_kontrol"
+      ]
+    ]
+  },
+  {
+    "id": "http_resp_kontrol",
+    "type": "http response",
+    "z": "flow_api",
+    "name": "",
+    "statusCode": "",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "x": 830,
+    "y": 620,
+    "wires": []
+  },
+  {
+    "id": "mqtt_publish_kontrol",
+    "type": "mqtt out",
+    "z": "flow_api",
+    "name": "Publish Kontrol",
+    "topic": "",
+    "qos": "0",
+    "retain": "false",
+    "broker": "mqtt_broker_config",
+    "x": 840,
+    "y": 660,
+    "wires": []
+  },
+  {
+    "id": "http_get_threshold",
+    "type": "http in",
+    "z": "flow_api",
+    "name": "GET /api/threshold",
+    "url": "/api/threshold",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 250,
+    "y": 700,
+    "wires": [
+      [
+        "auth_get_threshold"
+      ]
+    ]
+  },
+  {
+    "id": "auth_get_threshold",
+    "type": "subflow:sf_auth",
+    "z": "flow_api",
+    "name": "",
+    "x": 440,
+    "y": 700,
+    "wires": [
+      [
+        "resp_get_threshold"
+      ],
+      [
+        "http_resp_401"
+      ]
+    ]
+  },
+  {
+    "id": "resp_get_threshold",
+    "type": "function",
+    "z": "flow_api",
+    "name": "Batas Suhu Sekarang",
+    "func": "msg.payload = { status: \"success\", batas: flow.get(\"threshold\") ?? 30 };\nreturn msg;",
+    "outputs": 1,
+    "x": 640,
+    "y": 700,
+    "wires": [
+      [
+        "http_resp_get_threshold"
+      ]
+    ]
+  },
+  {
+    "id": "http_resp_get_threshold",
+    "type": "http response",
+    "z": "flow_api",
+    "name": "",
+    "statusCode": "",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "x": 830,
+    "y": 700,
+    "wires": []
+  },
+  {
+    "id": "http_put_threshold",
+    "type": "http in",
+    "z": "flow_api",
+    "name": "PUT /api/threshold",
+    "url": "/api/threshold",
+    "method": "put",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 250,
+    "y": 760,
+    "wires": [
+      [
+        "auth_put_threshold"
+      ]
+    ]
+  },
+  {
+    "id": "auth_put_threshold",
+    "type": "subflow:sf_auth",
+    "z": "flow_api",
+    "name": "",
+    "x": 440,
+    "y": 760,
+    "wires": [
+      [
+        "proc_threshold"
+      ],
+      [
+        "http_resp_401"
+      ]
+    ]
+  },
+  {
+    "id": "proc_threshold",
+    "type": "function",
+    "z": "flow_api",
+    "name": "Set Batas Suhu",
+    "func": "const batas = (msg.payload || {}).batas;\n// Rentang ukur DHT22\nif (typeof batas !== \"number\" || batas < -40 || batas > 80) {\n  msg.statusCode = 400;\n  msg.payload = { status: \"error\", message: \"batas wajib angka antara -40 dan 80\" };\n  return [msg, null];\n}\n\nflow.set(\"threshold\", batas);\nflow.set(\"diAtasBatas\", false); // agar suhu yang sudah di atas batas baru tetap memicu notifikasi\nmsg.payload = { status: \"success\", message: \"Batas suhu disimpan\", batas };\nreturn [msg, { payload: { type: \"threshold\", batas } }];",
+    "outputs": 2,
+    "x": 640,
+    "y": 760,
+    "wires": [
+      [
+        "http_resp_put_threshold"
+      ],
+      [
+        "ws_out"
+      ]
+    ]
+  },
+  {
+    "id": "http_resp_put_threshold",
+    "type": "http response",
+    "z": "flow_api",
+    "name": "",
+    "statusCode": "",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "x": 830,
+    "y": 760,
+    "wires": []
+  },
+  {
+    "id": "http_resp_401",
+    "type": "http response",
+    "z": "flow_api",
+    "name": "401 Unauthorized",
+    "statusCode": "",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "x": 460,
+    "y": 820,
+    "wires": []
+  }
+]

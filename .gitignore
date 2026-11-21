@@ -1,0 +1,10 @@
+node_modules/
+.venv/
+__pycache__/
+*.db
+nodered/.config.*.json
+nodered/.*.backup
+nodered/lib/
+nodered/context/
+.DS_Store
+nodered/package.json

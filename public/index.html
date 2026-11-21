@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monitoring Suhu IoT</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;800&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #fafaf9;
+      --surface: #ffffff;
+      --ink: #1c1917;
+      --muted: #57534e;
+      --faint: #a8a29e;
+      --ring: #d6d3d1;
+      --hairline: #e7e5e4;
+      --accent: #047857;
+      --suhu: #ea580c;
+      --lembab: #059669;
+      --danger: #dc2626;
+      --danger-soft: #fee2e2;
+      --focus: #f97316;
+      --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0c0a09;
+        --surface: #1c1917;
+        --ink: #f5f5f4;
+        --muted: #a8a29e;
+        --faint: #78716c;
+        --ring: #44403c;
+        --hairline: #292524;
+        --accent: #34d399;
+        --suhu: #fb923c;
+        --lembab: #34d399;
+        --danger: #f87171;
+        --danger-soft: #450a0a;
+      }
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); line-height: 1.5; -webkit-font-smoothing: antialiased; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 40px 24px 64px; display: grid; gap: 24px; }
+    .mono { font-family: var(--font-mono); }
+    :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+    header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
+    h1 { font-size: clamp(30px, 5vw, 44px); font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+    .lead { color: var(--muted); margin-top: 6px; }
+    .status { font-size: 14px; color: var(--muted); text-align: right; }
+    .status b { font-weight: 600; color: var(--danger); }
+    .status b.on { color: var(--accent); }
+
+    .card { background: var(--surface); border-radius: 16px; padding: 20px; box-shadow: inset 0 0 0 1px var(--ring); }
+    .card h2 { font-size: 15px; font-weight: 600; margin-bottom: 14px; }
+    .label { font-size: 14px; font-weight: 500; color: var(--muted); }
+
+    .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .stat .value { font-size: clamp(34px, 6vw, 48px); font-weight: 800; letter-spacing: -0.03em; margin-top: 6px; font-variant-numeric: tabular-nums; }
+    .stat .value small { font-size: 18px; font-weight: 500; color: var(--faint); margin-left: 4px; letter-spacing: 0; }
+    .stat .note { font-size: 13px; color: var(--muted); }
+    .stat.panas { box-shadow: inset 0 0 0 2px var(--danger); }
+    .stat.panas .value { color: var(--danger); }
+
+    .chart-box { position: relative; height: 280px; }
+
+    .split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .btn { font: inherit; font-size: 14px; font-weight: 600; border: 0; border-radius: 999px; padding: 9px 18px; cursor: pointer; background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px var(--ring); transition: background 0.15s, color 0.15s; }
+    .btn:hover { background: var(--hairline); }
+    .btn.active, .btn.primary { background: var(--ink); color: var(--bg); box-shadow: none; }
+    .field { font: inherit; font-family: var(--font-mono); width: 110px; border-radius: 999px; padding: 8px 16px; border: 0; background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px var(--ring); }
+    .hint { font-size: 13px; color: var(--muted); margin-top: 12px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th { text-align: left; font-size: 13px; color: var(--muted); font-weight: 500; padding: 0 0 10px; }
+    td { padding: 10px 0; border-top: 1px solid var(--hairline); font-family: var(--font-mono); }
+    td.panas { color: var(--danger); font-weight: 500; }
+
+    #log { font-family: var(--font-mono); font-size: 12px; color: var(--muted); max-height: 160px; overflow-y: auto; display: grid; gap: 4px; }
+    #log .error { color: var(--danger); }
+    #log .alert { color: var(--suhu); }
+    #log time { color: var(--faint); margin-right: 8px; }
+
+    #toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); background: var(--danger); color: #fff; padding: 12px 20px; border-radius: 999px; font-size: 14px; font-weight: 600; opacity: 0; transition: all 0.25s; pointer-events: none; max-width: calc(100% - 32px); }
+    #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    @media (max-width: 720px) {
+      .wrap { padding: 24px 16px 48px; }
+      .stats, .split { grid-template-columns: minmax(0, 1fr); }
+    }
+  </style>
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <div>
+      <h1>Monitoring Suhu</h1>
+      <p class="lead">Data ESP32 lewat MQTT, disimpan di SQLite, dikirim real-time lewat WebSocket.</p>
+    </div>
+    <div class="status">
+      <p>Sensor <b id="sensor-status">offline</b></p>
+      <p>WebSocket <b id="ws-status">terputus</b></p>
+    </div>
+  </header>
+
+  <section class="stats">
+    <div class="card stat" id="stat-suhu">
+      <p class="label">Suhu</p>
+      <p class="value"><span id="suhu">--</span><small>&deg;C</small></p>
+      <p class="note" id="suhu-note">Menunggu data</p>
+    </div>
+    <div class="card stat">
+      <p class="label">Kelembaban</p>
+      <p class="value"><span id="kelembaban">--</span><small>%</small></p>
+      <p class="note" id="waktu-note">-</p>
+    </div>
+    <div class="card stat">
+      <p class="label">Batas suhu</p>
+      <p class="value"><span id="batas">--</span><small>&deg;C</small></p>
+      <p class="note">Notifikasi saat terlewati</p>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Grafik real-time</h2>
+    <div class="chart-box"><canvas id="chart"></canvas></div>
+  </section>
+
+  <section class="split">
+    <div class="card">
+      <h2>Lampu</h2>
+      <div class="row">
+        <button class="btn" id="btn-on" onclick="kontrol('lamp', 'on')">Nyala</button>
+        <button class="btn" id="btn-off" onclick="kontrol('lamp', 'off')">Mati</button>
+      </div>
+      <p class="hint">Perintah dikirim ke ESP32 lewat topik <span class="mono">iot/kontrol</span>.</p>
+    </div>
+    <div class="card">
+      <h2>Batas suhu</h2>
+      <div class="row">
+        <input class="field" type="number" id="input-batas" step="0.5" min="-40" max="80" aria-label="Batas suhu dalam derajat Celsius">
+        <button class="btn primary" onclick="simpanBatas()">Simpan</button>
+      </div>
+      <p class="hint">Disimpan lewat <span class="mono">PUT /api/threshold</span>.</p>
+    </div>
+  </section>
+
+  <section class="split">
+    <div class="card">
+      <h2>10 data terakhir</h2>
+      <table>
+        <thead><tr><th>Waktu</th><th>Suhu</th><th>Kelembaban</th></tr></thead>
+        <tbody id="history-body"><tr><td colspan="3">Memuat...</td></tr></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Log</h2>
+      <div id="log"></div>
+    </div>
+  </section>
+</main>
+<div id="toast" role="status"></div>
+
+<script>
+// Saat dibuka lewat Node-RED pakai origin yang sama; saat dibuka sebagai file pakai localhost
+const BASE = location.protocol.startsWith('http') ? location.origin : 'http://localhost:1880';
+const API_BASE = `${BASE}/api`;
+const WS_URL = `${BASE.replace(/^http/, 'ws')}/ws/sensor`;
+const API_KEY = 'iot-2410020079';
+const MAX_TITIK = 30;
+const SENSOR_TIMEOUT_MS = 10000;
+const DERAJAT = String.fromCharCode(176);
+
+let batas = null;
+let riwayat = [];
+let dataTerakhir = 0;
+
+const warna = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const jam = iso => new Date(iso).toLocaleTimeString('id-ID');
+
+function log(msg, type = '') {
+  const el = document.getElementById('log');
+  const baris = document.createElement('div');
+  baris.className = type;
+  const waktu = document.createElement('time');
+  waktu.textContent = new Date().toLocaleTimeString('id-ID');
+  baris.append(waktu, msg);
+  el.appendChild(baris);
+  el.scrollTop = el.scrollHeight;
+}
+
+function setStatus(id, on, teksOn, teksOff) {
+  const el = document.getElementById(id);
+  el.textContent = on ? teksOn : teksOff;
+  el.classList.toggle('on', on);
+}
+
+async function api(path, options = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY, ...options.headers }
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(`${res.status} ${json.message}`);
+  return json;
+}
+
+Chart.defaults.font.family = warna('--font-sans');
+Chart.defaults.color = warna('--muted');
+Chart.defaults.borderColor = warna('--hairline');
+
+const chart = new Chart(document.getElementById('chart'), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      { label: `Suhu (${DERAJAT}C)`, data: [], borderColor: warna('--suhu'), backgroundColor: warna('--suhu'), borderWidth: 2, pointRadius: 0, tension: 0.35, yAxisID: 'y' },
+      { label: 'Kelembaban (%)', data: [], borderColor: warna('--lembab'), backgroundColor: warna('--lembab'), borderWidth: 2, pointRadius: 0, tension: 0.35, yAxisID: 'y1' },
+      { label: 'Batas suhu', data: [], borderColor: warna('--danger'), backgroundColor: warna('--danger'), borderWidth: 1.5, borderDash: [5, 5], pointRadius: 0, yAxisID: 'y' }
+    ]
+  },
+  options: {
+    maintainAspectRatio: false,
+    animation: { duration: 250 },
+    interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { align: 'start', labels: { boxWidth: 10, boxHeight: 10, useBorderRadius: true, borderRadius: 5 } } },
+    scales: {
+      x: { grid: { display: false }, ticks: { maxTicksLimit: 6 } },
+      y: { position: 'left', title: { display: true, text: `Suhu (${DERAJAT}C)` } },
+      y1: { position: 'right', title: { display: true, text: 'Kelembaban (%)' }, grid: { drawOnChartArea: false } }
+    }
+  }
+});
+
+function gambarUlangGrafik() {
+  const titik = riwayat.slice(-MAX_TITIK);
+  chart.data.labels = titik.map(d => jam(d.received));
+  chart.data.datasets[0].data = titik.map(d => d.suhu);
+  chart.data.datasets[1].data = titik.map(d => d.kelembaban);
+  chart.data.datasets[2].data = titik.map(() => batas);
+  chart.update();
+}
+
+function tampilkanTabel() {
+  const tbody = document.getElementById('history-body');
+  if (riwayat.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3">Belum ada data</td></tr>';
+    return;
+  }
+  tbody.innerHTML = riwayat.slice(-10).reverse().map(d => `
+    <tr>
+      <td>${jam(d.received)}</td>
+      <td class="${batas !== null && d.suhu > batas ? 'panas' : ''}">${d.suhu.toFixed(1)}</td>
+      <td>${d.kelembaban.toFixed(1)}</td>
+    </tr>`).join('');
+}
+
+function tampilkanSensor(d) {
+  const panas = batas !== null && d.suhu > batas;
+  document.getElementById('suhu').textContent = d.suhu.toFixed(1);
+  document.getElementById('kelembaban').textContent = d.kelembaban.toFixed(1);
+  document.getElementById('stat-suhu').classList.toggle('panas', panas);
+  document.getElementById('suhu-note').textContent = panas ? 'Di atas batas' : 'Normal';
+  document.getElementById('waktu-note').textContent = `Update ${jam(d.received)}`;
+  setStatus('sensor-status', true, 'online', 'offline');
+}
+
+function tampilkanBatas(nilai) {
+  batas = nilai;
+  document.getElementById('batas').textContent = nilai.toFixed(1);
+  document.getElementById('input-batas').value = nilai;
+  gambarUlangGrafik();
+  tampilkanTabel();
+}
+
+function tampilkanNotifikasi(alert) {
+  log(`Notifikasi: ${alert.pesan}`, 'alert');
+  const toast = document.getElementById('toast');
+  toast.textContent = alert.pesan;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 5000);
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification('Suhu melewati batas', { body: alert.pesan });
+  }
+}
+
+async function muatAwal() {
+  try {
+    const [sensor, history, threshold] = await Promise.all([api('/suhu'), api('/history'), api('/threshold')]);
+    riwayat = history.data;
+    tampilkanBatas(threshold.batas);
+    if (sensor.data.suhu !== null) {
+      tampilkanSensor(sensor.data);
+      // Umur data dihitung dari jam server saja, supaya jam perangkat yang berbeda tidak berpengaruh
+      dataTerakhir = Date.now() - (Date.parse(sensor.server_time) - Date.parse(sensor.data.received));
+    }
+    log(`Data awal dimuat, ${history.count} baris dari SQLite`);
+  } catch (err) {
+    log(`Gagal memuat data awal: ${err.message}`, 'error');
+  }
+}
+
+// WebSocket menggantikan polling: Node-RED mendorong data setiap kali ada pesan MQTT baru
+function sambungWebSocket() {
+  const ws = new WebSocket(WS_URL);
+  ws.onopen = () => {
+    setStatus('ws-status', true, 'tersambung', 'terputus');
+    log('WebSocket tersambung');
+  };
+  ws.onmessage = event => {
+    const pesan = JSON.parse(event.data);
+    if (pesan.type === 'sensor') {
+      riwayat.push(pesan.data);
+      if (riwayat.length > 50) riwayat.shift();
+      tampilkanSensor(pesan.data);
+      dataTerakhir = Date.now();
+      gambarUlangGrafik();
+      tampilkanTabel();
+    } else if (pesan.type === 'alert') {
+      tampilkanNotifikasi(pesan);
+    } else if (pesan.type === 'threshold') {
+      tampilkanBatas(pesan.batas);
+    }
+  };
+  ws.onclose = () => {
+    setStatus('ws-status', false, 'tersambung', 'terputus');
+    log('WebSocket terputus, menyambung ulang dalam 3 detik', 'error');
+    setTimeout(sambungWebSocket, 3000);
+  };
+}
+
+async function kontrol(device, action) {
+  try {
+    await api('/kontrol', { method: 'POST', body: JSON.stringify({ device, action }) });
+    document.getElementById('btn-on').classList.toggle('active', action === 'on');
+    document.getElementById('btn-off').classList.toggle('active', action === 'off');
+    log(`Perintah terkirim: ${device} ${action}`);
+  } catch (err) {
+    log(`Gagal kontrol: ${err.message}`, 'error');
+  }
+}
+
+async function simpanBatas() {
+  const nilai = parseFloat(document.getElementById('input-batas').value);
+  try {
+    const json = await api('/threshold', { method: 'PUT', body: JSON.stringify({ batas: nilai }) });
+    log(`Batas suhu diubah ke ${json.batas} ${DERAJAT}C`);
+  } catch (err) {
+    log(`Gagal menyimpan batas: ${err.message}`, 'error');
+  }
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+}
+
+// Penanda sensor mati jika tidak ada data baru, dicek lokal tanpa request ke server
+setInterval(() => {
+  if (dataTerakhir && Date.now() - dataTerakhir > SENSOR_TIMEOUT_MS) {
+    setStatus('sensor-status', false, 'online', 'offline');
+  }
+}, 1000);
+
+muatAwal();
+sambungWebSocket();
+</script>
+</body>
+</html>
