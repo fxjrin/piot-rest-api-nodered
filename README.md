@@ -20,11 +20,40 @@ Dashboard otomatis mengikuti mode gelap perangkat:
 
 ## Arsitektur
 
+```mermaid
+flowchart LR
+  esp["ESP32 / simulasi_esp32.py"]
+  broker["Mosquitto<br/>localhost:1883"]
+  nr["Node-RED<br/>localhost:1880"]
+  db[("SQLite<br/>iot.db")]
+  web["Dashboard<br/>/dashboard/"]
+
+  esp -- "iot/sensor" --> broker
+  broker -- "iot/sensor" --> nr
+  nr -- "iot/kontrol, iot/notifikasi" --> broker
+  broker -- "iot/kontrol, iot/notifikasi" --> esp
+  nr -- "simpan dan baca history" --> db
+  web -- "REST /api/* + X-API-Key" --> nr
+  nr -- "WebSocket /ws/sensor" --> web
 ```
-simulasi_esp32.py --MQTT iot/sensor--> Mosquitto --> Node-RED --+--> SQLite (iot.db)
-        ^                                                       |
-        +----MQTT iot/kontrol, iot/notifikasi-------------------+--> WebSocket /ws/sensor --> Dashboard
-                                                                +<-- REST /api/* (X-API-Key) <-- Dashboard
+
+Alur notifikasi saat suhu melewati batas:
+
+```mermaid
+sequenceDiagram
+  participant D as Dashboard
+  participant N as Node-RED
+  participant B as Mosquitto
+  participant E as ESP32
+
+  D->>N: PUT /api/threshold (batas 30)
+  N-->>D: 200 OK, WebSocket type threshold
+  E->>B: publish iot/sensor (suhu 30.4)
+  B->>N: iot/sensor
+  N->>N: simpan ke SQLite, cek batas
+  N-->>D: WebSocket type sensor dan type alert
+  N->>B: publish iot/notifikasi
+  B->>E: iot/notifikasi
 ```
 
 ![Flow Node-RED](screenshot/flow-node-red.png)
